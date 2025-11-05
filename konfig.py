@@ -1,21 +1,28 @@
+
 import toml
 import os
 import sys
-from typing import Dict, Any
+import requests
+import json
+from typing import Dict, Any, List
+from urllib.parse import urljoin
 
 
-class DependencyVisualizer:
+class NpmDependencyVisualizer:
     def __init__(self, config_path: str = "config.toml"):
         self.config_path = config_path
         self.config = self.load_config()
+        self.npm_registry_url = "https://registry.npmjs.org/"
 
-    def load_config(self):
+    def load_config(self) -> Dict[str, Any]:
+
         try:
             if not os.path.exists(self.config_path):
                 raise FileNotFoundError(f"Конфигурационный файл {self.config_path} не найден")
 
             with open(self.config_path, 'r', encoding='utf-8') as f:
                 config = toml.load(f)
+
 
             required_fields = ['package_name', 'repository_url', 'test_mode', 'version', 'ascii_tree']
             for field in required_fields:
@@ -30,73 +37,80 @@ class DependencyVisualizer:
             raise RuntimeError(f"Ошибка загрузки конфигурации: {e}")
 
     def validate_config(self):
+
         errors = []
+
         if not isinstance(self.config['package_name'], str) or not self.config['package_name']:
             errors.append("package_name должен быть непустой строкой")
 
-        repo_path = self.config['repository_url']
-        if not isinstance(repo_path, str) or not repo_path:
-            errors.append("repository_url должен быть непустой строкой")
-
-        if not isinstance(self.config['test_mode'], bool):
-            errors.append("test_mode должен быть true или false")
 
         version = self.config['version']
         if not isinstance(version, str) or not version:
             errors.append("version должен быть непустой строкой")
 
-        if not isinstance(self.config['ascii_tree'], bool):
-            errors.append("ascii_tree должен быть true или false")
-
         if errors:
             raise ValueError("Ошибки валидации конфигурации:\n- " + "\n- ".join(errors))
 
+    def get_npm_package_info(self, package_name: str, version: str = "latest") -> Dict[str, Any]:
+
+        try:
+            url = urljoin(self.npm_registry_url, f"{package_name}/{version}")
+            response = requests.get(url, timeout=10)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            raise RuntimeError(f"Ошибка получения данных из npm реестра: {e}")
+        except json.JSONDecodeError as e:
+            raise RuntimeError(f"Ошибка парсинга JSON ответа: {e}")
+
+    def get_dependencies(self, package_info: Dict[str, Any]) -> Dict[str, str]:
+
+        try:
+            dependencies = {}
+
+
+            if 'dependencies' in package_info:
+                dependencies.update(package_info['dependencies'])
+
+
+            if 'versions' in package_info and self.config['version'] in package_info['versions']:
+                version_data = package_info['versions'][self.config['version']]
+                if 'dependencies' in version_data:
+                    dependencies.update(version_data['dependencies'])
+
+            return dependencies
+
+        except Exception as e:
+            raise RuntimeError(f"Ошибка извлечения зависимостей: {e}")
+
+    def print_dependencies(self, dependencies: Dict[str, str]):
+
+        print(f"\n=== ПРЯМЫЕ ЗАВИСИМОСТИ ПАКЕТА {self.config['package_name']}@{self.config['version']} ===")
+
+        if not dependencies:
+            print("Зависимости не найдены")
+            return
+
+        for dep_name, dep_version in dependencies.items():
+            print(f"📦 {dep_name}: {dep_version}")
+
+        print(f"\nВсего зависимостей: {len(dependencies)}")
+
     def print_config(self):
-        print("=== КОНФИГУРАЦИЯ ПРИЛОЖЕНИЯ ===")
+        """Вывод конфигурации"""
+        print("=== КОНФИГУРАЦИЯ ===")
         for key, value in self.config.items():
             print(f"{key}: {value}")
         print("=" * 40)
 
-    def simulate_dependencies(self):
-
-        if self.config['test_mode']:
-
-            return {
-                'numpy': ['python', 'setuptools'],
-                'matplotlib': ['numpy', 'pillow', 'cycler'],
-                'pillow': ['numpy'],
-                'cycler': []
-            }
-        else:
-            return {self.config['package_name']: ['dependency1', 'dependency2']}
-
-    def print_ascii_tree(self, dependencies: Dict[str, list]):
-        """Вывод зависимостей в виде ASCII-дерева"""
-        if not self.config['ascii_tree']:
-            return
-
-        print("\n=== ДЕРЕВО ЗАВИСИМОСТЕЙ ===")
-
-        def print_tree(package, deps, prefix="", is_last=True):
-            connector = "└── " if is_last else "├── "
-            print(f"{prefix}{connector}{package}")
-
-            new_prefix = prefix + ("    " if is_last else "│   ")
-            for i, dep in enumerate(deps):
-                is_last_dep = i == len(deps) - 1
-                print_tree(dep, dependencies.get(dep, []), new_prefix, is_last_dep)
-
-
-        main_package = self.config['package_name']
-        print_tree(main_package, dependencies.get(main_package, []))
-
 
 def create_sample_config():
+
     sample_config = {
-        'package_name': 'matplotlib',
-        'repository_url': 'https://github.com/matplotlib/matplotlib',
-        'test_mode': True,
-        'version': '3.7.1',
+        'package_name': 'react',
+        'repository_url': 'https://github.com/facebook/react',
+        'test_mode': False,
+        'version': '18.2.0',
         'ascii_tree': True
     }
 
@@ -107,7 +121,9 @@ def create_sample_config():
 
 
 def main():
+
     try:
+
         if not os.path.exists('config.toml'):
             print("Конфигурационный файл не найден. Создаю пример...")
             create_sample_config()
@@ -115,17 +131,26 @@ def main():
             return
 
 
-        visualizer = DependencyVisualizer()
+        visualizer = NpmDependencyVisualizer()
         visualizer.validate_config()
         visualizer.print_config()
 
-        dependencies = visualizer.simulate_dependencies()
+
+        print(f"\nПолучение информации о пакете {visualizer.config['package_name']}...")
+        package_info = visualizer.get_npm_package_info(
+            visualizer.config['package_name'],
+            visualizer.config['version']
+        )
 
 
-        if visualizer.config['ascii_tree']:
-            visualizer.print_ascii_tree(dependencies)
-        else:
-            print(f"\nЗависимости: {dependencies}")
+        dependencies = visualizer.get_dependencies(package_info)
+
+        visualizer.print_dependencies(dependencies)
+
+
+        with open('package_info.json', 'w', encoding='utf-8') as f:
+            json.dump(package_info, f, indent=2, ensure_ascii=False)
+        print(f"\n Полная информация о пакете сохранена в package_info.json")
 
     except Exception as e:
         print(f" Ошибка: {e}")
