@@ -1,161 +1,94 @@
-
 import toml
-import os
-import sys
 import requests
 import json
-from typing import Dict, Any, List
-from urllib.parse import urljoin
 
 
-class NpmDependencyVisualizer:
-    def __init__(self, config_path: str = "config.toml"):
-        self.config_path = config_path
-        self.config = self.load_config()
-        self.npm_registry_url = "https://registry.npmjs.org/"
+with open('config.toml', 'r') as f:
+    config = toml.load(f)
 
-    def load_config(self) -> Dict[str, Any]:
+print("=== КОНФИГУРАЦИЯ ===")
+for key, value in config.items():
+    print(f"{key}: {value}")
 
-        try:
-            if not os.path.exists(self.config_path):
-                raise FileNotFoundError(f"Конфигурационный файл {self.config_path} не найден")
-
-            with open(self.config_path, 'r', encoding='utf-8') as f:
-                config = toml.load(f)
+package_name = config['package_name']
+version = config['version']
+test_mode = config['test_mode']
 
 
-            required_fields = ['package_name', 'repository_url', 'test_mode', 'version', 'ascii_tree']
-            for field in required_fields:
-                if field not in config:
-                    raise ValueError(f"Обязательный параметр '{field}' отсутствует в конфигурации")
 
-            return config
+def get_dependencies(pkg, ver):
+    if test_mode:
 
-        except toml.TomlDecodeError as e:
-            raise ValueError(f"Ошибка синтаксиса TOML: {e}")
-        except Exception as e:
-            raise RuntimeError(f"Ошибка загрузки конфигурации: {e}")
+        test_deps = {
+            'react': ['loose-envify', 'js-tokens'],
+            'express': ['body-parser', 'cookie-parser'],
+            'A': ['B', 'C'],
+            'B': ['D']
+        }
+        return test_deps.get(pkg, [])
+    else:
 
-    def validate_config(self):
-
-        errors = []
-
-        if not isinstance(self.config['package_name'], str) or not self.config['package_name']:
-            errors.append("package_name должен быть непустой строкой")
-
-
-        version = self.config['version']
-        if not isinstance(version, str) or not version:
-            errors.append("version должен быть непустой строкой")
-
-        if errors:
-            raise ValueError("Ошибки валидации конфигурации:\n- " + "\n- ".join(errors))
-
-    def get_npm_package_info(self, package_name: str, version: str = "latest") -> Dict[str, Any]:
-
-        try:
-            url = urljoin(self.npm_registry_url, f"{package_name}/{version}")
-            response = requests.get(url, timeout=10)
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.RequestException as e:
-            raise RuntimeError(f"Ошибка получения данных из npm реестра: {e}")
-        except json.JSONDecodeError as e:
-            raise RuntimeError(f"Ошибка парсинга JSON ответа: {e}")
-
-    def get_dependencies(self, package_info: Dict[str, Any]) -> Dict[str, str]:
-
-        try:
-            dependencies = {}
+        url = f"https://registry.npmjs.org/{pkg}/{ver}"
+        response = requests.get(url)
+        data = response.json()
+        deps = data.get('dependencies', {})
+        return list(deps.keys())
 
 
-            if 'dependencies' in package_info:
-                dependencies.update(package_info['dependencies'])
+print(f"\n=== ПРЯМЫЕ ЗАВИСИМОСТИ {package_name}@{version} ===")
+direct_deps = get_dependencies(package_name, version)
+for dep in direct_deps:
+    print(f"📦 {dep}")
 
 
-            if 'versions' in package_info and self.config['version'] in package_info['versions']:
-                version_data = package_info['versions'][self.config['version']]
-                if 'dependencies' in version_data:
-                    dependencies.update(version_data['dependencies'])
-
-            return dependencies
-
-        except Exception as e:
-            raise RuntimeError(f"Ошибка извлечения зависимостей: {e}")
-
-    def print_dependencies(self, dependencies: Dict[str, str]):
-
-        print(f"\n=== ПРЯМЫЕ ЗАВИСИМОСТИ ПАКЕТА {self.config['package_name']}@{self.config['version']} ===")
-
-        if not dependencies:
-            print("Зависимости не найдены")
-            return
-
-        for dep_name, dep_version in dependencies.items():
-            print(f"📦 {dep_name}: {dep_version}")
-
-        print(f"\nВсего зависимостей: {len(dependencies)}")
-
-    def print_config(self):
-        """Вывод конфигурации"""
-        print("=== КОНФИГУРАЦИЯ ===")
-        for key, value in self.config.items():
-            print(f"{key}: {value}")
-        print("=" * 40)
+visited = set()
+graph = {}
+cycles = []
 
 
-def create_sample_config():
+def dfs(current_pkg, path=None):
+    if path is None:
+        path = []
 
-    sample_config = {
-        'package_name': 'react',
-        'repository_url': 'https://github.com/facebook/react',
-        'test_mode': False,
-        'version': '18.2.0',
-        'ascii_tree': True
-    }
+    if current_pkg in path:
+        cycles.append(' -> '.join(path + [current_pkg]))
+        return
 
-    with open('config.toml', 'w', encoding='utf-8') as f:
-        toml.dump(sample_config, f)
+    deps = get_dependencies(current_pkg, 'latest')
+    graph[current_pkg] = deps
+    visited.add(current_pkg)
 
-    print("Создан пример конфигурационного файла: config.toml")
-
-
-def main():
-
-    try:
-
-        if not os.path.exists('config.toml'):
-            print("Конфигурационный файл не найден. Создаю пример...")
-            create_sample_config()
-            print("Отредактируйте config.toml и запустите приложение снова")
-            return
+    for dep in deps:
+        if dep not in visited:
+            dfs(dep, path + [current_pkg])
 
 
-        visualizer = NpmDependencyVisualizer()
-        visualizer.validate_config()
-        visualizer.print_config()
+print(f"\n=== ПОЛНЫЙ ГРАФ ЗАВИСИМОСТЕЙ ===")
+dfs(package_name)
+
+for pkg, deps in graph.items():
+    print(f"{pkg} -> {deps}")
+
+if cycles:
+    print(f"\n ЦИКЛЫ: {len(cycles)}")
+    for cycle in cycles:
+        print(f"  {cycle}")
 
 
-        print(f"\nПолучение информации о пакете {visualizer.config['package_name']}...")
-        package_info = visualizer.get_npm_package_info(
-            visualizer.config['package_name'],
-            visualizer.config['version']
-        )
+if config.get('ascii_tree', False):
+    print(f"\n=== ASCII ДЕРЕВО ===")
 
 
-        dependencies = visualizer.get_dependencies(package_info)
+    def print_tree(pkg, prefix="", is_last=True):
+        connector = "└── " if is_last else "├── "
+        print(f"{prefix}{connector}{pkg}")
 
-        visualizer.print_dependencies(dependencies)
+        deps = graph.get(pkg, [])
+        new_prefix = prefix + ("    " if is_last else "│   ")
 
-
-        with open('package_info.json', 'w', encoding='utf-8') as f:
-            json.dump(package_info, f, indent=2, ensure_ascii=False)
-        print(f"\n Полная информация о пакете сохранена в package_info.json")
-
-    except Exception as e:
-        print(f" Ошибка: {e}")
-        sys.exit(1)
+        for i, dep in enumerate(deps):
+            is_last_dep = i == len(deps) - 1
+            print_tree(dep, new_prefix, is_last_dep)
 
 
-if __name__ == "__main__":
-    main()
+    print_tree(package_name)
