@@ -1,0 +1,5 @@
+package_name = "matplotlib"
+repository_url = "https://github.com/matplotlib/matplotlib"
+test_mode = true
+version = "3.7.1"
+ascii_tree = true
