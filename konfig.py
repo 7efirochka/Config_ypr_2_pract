@@ -119,12 +119,9 @@ if config.get('ascii_tree', False):
     print_tree(package_name)
 
 print(f"\n=== MERMAID ДИАГРАММА ===")
-print("```mermaid")
-print("graph TD")
 for pkg, deps in graph.items():
     for dep in deps:
         print(f"    {pkg} --> {dep}")
-print("```")
 
 print(f"\n=== ИНФОРМАЦИЯ О ГРАФЕ ===")
 print(f"Всего узлов: {len(graph)}")
