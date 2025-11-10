@@ -14,17 +14,25 @@ package_name = config['package_name']
 version = config['version']
 test_mode = config['test_mode']
 
+test_deps = {
+    'A': ['B', 'C'],
+    'B': ['D'],
+    'C': ['B', 'E'],
+    'D': [],
+    'E': ['F'],
+    'F': [],
 
+        'react': ['loose-envify', 'js-tokens'],
+        'express': ['body-parser', 'cookie-parser'],
+
+        'matplotlib': ['numpy', 'pillow', 'cycler'],
+        'numpy': ['python', 'setuptools'],
+        'pillow': ['numpy'],
+        'cycler': []
+}
 
 def get_dependencies(pkg, ver):
     if test_mode:
-
-        test_deps = {
-            'react': ['loose-envify', 'js-tokens'],
-            'express': ['body-parser', 'cookie-parser'],
-            'A': ['B', 'C'],
-            'B': ['D']
-        }
         return test_deps.get(pkg, [])
     else:
 
@@ -40,6 +48,19 @@ direct_deps = get_dependencies(package_name, version)
 for dep in direct_deps:
     print(f"📦 {dep}")
 
+print(f"\n=== ОБРАТНЫЕ ЗАВИСИМОСТИ {package_name} ===")
+reverse_deps = {}
+for pkg, deps in test_deps.items():
+    for dep in deps:
+        if dep not in reverse_deps:
+            reverse_deps[dep] = []
+        reverse_deps[dep].append(pkg)
+
+if package_name in reverse_deps:
+    for dep in reverse_deps[package_name]:
+        print(f"🔙 {dep} -> {package_name}")
+else:
+    print("Никто не зависит от этого пакета")
 
 visited = set()
 graph = {}
@@ -54,7 +75,11 @@ def dfs(current_pkg, path=None):
         cycles.append(' -> '.join(path + [current_pkg]))
         return
 
-    deps = get_dependencies(current_pkg, 'latest')
+    if current_pkg == package_name:
+        deps = get_dependencies(current_pkg, version)
+    else:
+        deps = get_dependencies(current_pkg, 'latest')
+
     graph[current_pkg] = deps
     visited.add(current_pkg)
 
@@ -92,3 +117,19 @@ if config.get('ascii_tree', False):
 
 
     print_tree(package_name)
+
+print(f"\n=== MERMAID ДИАГРАММА ===")
+print("```mermaid")
+print("graph TD")
+for pkg, deps in graph.items():
+    for dep in deps:
+        print(f"    {pkg} --> {dep}")
+print("```")
+
+print(f"\n=== ИНФОРМАЦИЯ О ГРАФЕ ===")
+print(f"Всего узлов: {len(graph)}")
+print(f"Всего связей: {sum(len(deps) for deps in graph.values())}")
+if cycles:
+    print(f"Обнаружено циклов: {len(cycles)}")
+    for cycle in cycles:
+        print(f"  🔁 {cycle}")

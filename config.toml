@@ -1,5 +1,19 @@
-package_name = "A"
+package_name = "B"
 repository_url = "test"
 test_mode = true
 version = "1.0.0"
 ascii_tree = true
+
+
+#package_name = "matplotlib"
+#repository_url = "https://github.com/matplotlib/matplotlib"
+#test_mode = true
+#version = "3.7.1"
+#ascii_tree = true
+
+
+#package_name = "react"
+#repository_url = "https://github.com/facebook/react"
+#test_mode = false
+#version = "18.2.0"
+#ascii_tree = true
