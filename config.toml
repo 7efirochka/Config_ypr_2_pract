@@ -1,4 +1,4 @@
-package_name = "B"
+package_name = "A"
 repository_url = "test"
 test_mode = true
 version = "1.0.0"
